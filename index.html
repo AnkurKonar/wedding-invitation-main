@@ -726,87 +726,30 @@
       + '&dates=' + icsStamp(start) + '/' + icsStamp(end)
       + '&location=' + enc(ev.place) + '&details=' + enc(ev.desc||'');
   }
-  /* Detect a phone/tablet (iOS, iPadOS, Android) so we can hand off to the
-     device's own calendar app instead of forcing an .ics download. */
-  function isIOSDevice(){
-    const ua = navigator.userAgent || navigator.vendor || '';
-    return /iPad|iPhone|iPod/.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  }
-  function isAndroidDevice(){
-    return /Android/i.test(navigator.userAgent || navigator.vendor || '');
-  }
-  function isMobileDevice(){
-    return isIOSDevice() || isAndroidDevice();
-  }
-
-  /* Android's native Calendar intent is the closest browser-supported way
-     to hand the event directly to an installed calendar app. */
-  function openAndroidCalendar(ev){
-    const times = eventTimes(ev);
-    const startMs = new Date(times.start).getTime();
-    const endMs = new Date(times.end).getTime();
-
-    const title = encodeURIComponent(`${ev.en} — ${CONFIG.coupleShort}`);
-    const location = encodeURIComponent(ev.place || '');
-    const description = encodeURIComponent(ev.desc || '');
-
-    const intent =
-      `intent://insert/event?title=${title}&location=${location}&description=${description}` +
-      `#Intent;scheme=content;action=android.intent.action.INSERT;` +
-      `type=vnd.android.cursor.item/event;` +
-      `l.beginTime=${startMs};l.endTime=${endMs};end`;
-
-    window.location.href = intent;
+  /* Always use the Google Calendar event URL first. If the browser blocks the
+     new tab/window, fall back to downloading a standard .ics file. */
+  function downloadICS(ev){
+    const ics = icsBody(ev);
+    const safeName = (ev.en || 'event')
+      .replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase() || 'event';
+    const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName + '.ics';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  /* Single add-to-calendar entry point used everywhere on the page:
-     - Android: try the native Calendar intent, without downloading an .ics.
-     - iPhone/iPad: use the native Share Sheet with a real .ics file;
-       compatible calendar apps can then accept the event.
-     - If file sharing is unavailable: download a real .ics file.
-     - Desktop/laptop: open Google Calendar directly in a new tab. */
-  async function addToCalendar(ev){
-    if (isAndroidDevice()){
-      openAndroidCalendar(ev);
-      return;
-    }
+  function addToCalendar(ev){
+    const googleUrl = gcalURL(ev);
+    const popup = window.open(googleUrl, '_blank', 'noopener,noreferrer');
 
-    if (isIOSDevice()){
-      const ics = icsBody(ev);
-      const file = new File(
-        [ics],
-        `${ev.en.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase() || 'event'}.ics`,
-        { type:'text/calendar;charset=utf-8' }
-      );
-
-      try{
-        if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
-          await navigator.share({
-            title: `${ev.en} — ${CONFIG.coupleShort}`,
-            text: `Add ${ev.en} to your calendar`,
-            files: [file]
-          });
-          return;
-        }
-      }catch(err){
-        // User cancellation is not an error and should not trigger a download.
-        if (err && err.name === 'AbortError') return;
-      }
-
-      const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return;
-    }
-
-    window.open(gcalURL(ev), '_blank', 'noopener');
+    /* If a popup blocker prevents Google Calendar from opening, provide the
+       universal .ics fallback instead. */
+    if (!popup) downloadICS(ev);
   }
   
   (function wireVenueCal(){
