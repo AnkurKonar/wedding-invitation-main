@@ -707,15 +707,23 @@
     const end = new Date(start.getTime() + (ev.dur||3)*36e5);
     return { start, end };
   }
+  function icsEscape(value){
+    return String(value || '')
+      .replace(/\\/g,'\\\\')
+      .replace(/;/g,'\\;')
+      .replace(/,/g,'\\,')
+      .replace(/\r?\n/g,'\\n');
+  }
   function icsBody(ev){
     const {start,end} = eventTimes(ev);
     const title = `${ev.en} — ${CONFIG.coupleShort}`;
     return [
-      'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//SagnikJagriti//Wedding//EN','CALSCALE:GREGORIAN',
-      'BEGIN:VEVENT','UID:'+start.getTime()+'@Sagnik-jagriti',
+      'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//SagnikJagriti//Wedding//EN',
+      'CALSCALE:GREGORIAN','METHOD:PUBLISH',
+      'BEGIN:VEVENT','UID:'+start.getTime()+'-'+encodeURIComponent(ev.en)+'@Sagnik-jagriti',
       'DTSTAMP:'+icsStamp(new Date()),'DTSTART:'+icsStamp(start),'DTEND:'+icsStamp(end),
-      'SUMMARY:'+title,'LOCATION:'+ev.place.replace(/,/g,'\\,'),
-      'DESCRIPTION:'+(ev.desc||'').replace(/,/g,'\\,'),
+      'SUMMARY:'+icsEscape(title),'LOCATION:'+icsEscape(ev.place),
+      'DESCRIPTION:'+icsEscape(ev.desc||''),
       'END:VEVENT','END:VCALENDAR'
     ].join('\r\n');
   }
@@ -726,26 +734,61 @@
       + '&dates=' + icsStamp(start) + '/' + icsStamp(end)
       + '&location=' + enc(ev.place) + '&details=' + enc(ev.desc||'');
   }
-  /* Detect a phone/tablet (iOS, iPadOS, Android) so we can hand off to the
-     device's own calendar app instead of forcing an .ics download. */
+
+  /* Detect a phone/tablet. */
   function isMobileDevice(){
     const ua = navigator.userAgent || navigator.vendor || '';
     const isIOS = /iPad|iPhone|iPod/.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isAndroid = /Android/i.test(ua);
     return isIOS || isAndroid;
   }
-  /* Single add-to-calendar entry point used everywhere on the page:
-     - Phones/tablets: hand the event straight to the OS's own calendar
-       app (no .ics file is ever saved to disk).
-     - Desktop/laptop: open Google Calendar directly in a new tab. */
-  function addToCalendar(ev){
+
+  /*
+   * There is no universal browser URL that can directly insert an event into
+   * whichever calendar app the user has chosen as default. On phones/tablets,
+   * the most reliable app-agnostic approach is the native Share Sheet:
+   * create a real .ics file, then let the OS offer compatible calendar apps.
+   *
+   * If file sharing is unavailable, fall back to a normal .ics download.
+   * Desktop continues to use the direct Google Calendar template.
+   */
+  async function addToCalendar(ev){
+    const ics = icsBody(ev);
+    const safeName = `${ev.en}-${CONFIG.coupleShort}-calendar`
+      .replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase();
+    const file = new File([ics], `${safeName}.ics`, { type:'text/calendar;charset=utf-8' });
+
     if (isMobileDevice()){
-      window.location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsBody(ev));
-    } else {
-      window.open(gcalURL(ev), '_blank', 'noopener');
+      try{
+        if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+          await navigator.share({
+            title: `${ev.en} — ${CONFIG.coupleShort}`,
+            text: `Add ${ev.en} to your calendar`,
+            files: [file]
+          });
+          return;
+        }
+      }catch(err){
+        /* User cancelled the share sheet; do not trigger a surprise download. */
+        if (err && err.name === 'AbortError') return;
+      }
+
+      /* Browser/OS does not support file sharing: use a real ICS file as fallback. */
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeName}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
     }
+
+    window.open(gcalURL(ev), '_blank', 'noopener');
   }
+
   (function wireVenueCal(){
     const ceremony = CONFIG.events.find(e => e.en === 'Bou Bhat') || CONFIG.events[CONFIG.events.length - 1];
     $('#btnCal').addEventListener('click', () => addToCalendar(ceremony));
