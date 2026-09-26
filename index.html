@@ -6,10 +6,27 @@
 <meta name="theme-color" content="#2A0715" />
 <title>Jagriti & Sagnik · A Bengali Wedding · 25 Nov 2026</title>
 <meta name="description" content="Together with their families, Jagriti & Sagnik joyfully invite you to their wedding — Rampurhat, 25 November 2026. শুভ বিবাহ." />
-<!-- Social share (WhatsApp / iMessage) -->
+<!-- Social share (WhatsApp / iMessage / Twitter / Facebook / LinkedIn preview card) -->
+<!-- NOTE: og:url and og:image must be full, absolute URLs that are publicly
+     reachable on their own (not through the s.gy short link) — update the
+     domain/path below if your final GitHub Pages URL differs. -->
 <meta property="og:type" content="website" />
+<meta property="og:site_name" content="Jagriti & Sagnik" />
+<meta property="og:url" content="https://ankurkonar.github.io/wedding-invitation/" />
 <meta property="og:title" content="Jagriti & Sagnik — শুভ বিবাহ" />
 <meta property="og:description" content="You are lovingly invited to our wedding celebrations · November 2026." />
+<meta property="og:image" content="https://ankurkonar.github.io/wedding-invitation/assets/og-image.jpg" />
+<meta property="og:image:secure_url" content="https://ankurkonar.github.io/wedding-invitation/assets/og-image.jpg" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Jagriti & Sagnik" />
+<meta property="og:locale" content="en_US" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Jagriti & Sagnik — শুভ বিবাহ" />
+<meta name="twitter:description" content="You are warmly invited to our wedding celebrations · November 2026." />
+<meta name="twitter:image" content="https://ankurkonar.github.io/wedding-invitation/assets/og-image.jpg" />
+
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -650,7 +667,7 @@
     });
     wrap.addEventListener('click', e => {
       const b = e.target.closest('[data-ev]');
-      if(b) downloadICS(CONFIG.events[+b.dataset.ev]);
+      if(b) addToCalendar(CONFIG.events[+b.dataset.ev]);
     });
   })();
 
@@ -690,10 +707,10 @@
     const end = new Date(start.getTime() + (ev.dur||3)*36e5);
     return { start, end };
   }
-  function downloadICS(ev){
+  function icsBody(ev){
     const {start,end} = eventTimes(ev);
     const title = `${ev.en} — ${CONFIG.coupleShort}`;
-    const body = [
+    return [
       'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//SagnikJagriti//Wedding//EN','CALSCALE:GREGORIAN',
       'BEGIN:VEVENT','UID:'+start.getTime()+'@Sagnik-jagriti',
       'DTSTAMP:'+icsStamp(new Date()),'DTSTART:'+icsStamp(start),'DTEND:'+icsStamp(end),
@@ -701,11 +718,6 @@
       'DESCRIPTION:'+(ev.desc||'').replace(/,/g,'\\,'),
       'END:VEVENT','END:VCALENDAR'
     ].join('\r\n');
-    const url = URL.createObjectURL(new Blob([body], {type:'text/calendar'}));
-    const a = document.createElement('a');
-    a.href = url; a.download = ev.en.replace(/\s+/g,'-').toLowerCase()+'.ics';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 1500);
   }
   function gcalURL(ev){
     const {start,end} = eventTimes(ev);
@@ -714,9 +726,29 @@
       + '&dates=' + icsStamp(start) + '/' + icsStamp(end)
       + '&location=' + enc(ev.place) + '&details=' + enc(ev.desc||'');
   }
+  /* Detect a phone/tablet (iOS, iPadOS, Android) so we can hand off to the
+     device's own calendar app instead of forcing an .ics download. */
+  function isMobileDevice(){
+    const ua = navigator.userAgent || navigator.vendor || '';
+    const isIOS = /iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS reports as Mac
+    const isAndroid = /Android/i.test(ua);
+    return isIOS || isAndroid;
+  }
+  /* Single add-to-calendar entry point used everywhere on the page:
+     - Phones/tablets: hand the event straight to the OS's own calendar
+       app (no .ics file is ever saved to disk).
+     - Desktop/laptop: open Google Calendar directly in a new tab. */
+  function addToCalendar(ev){
+    if (isMobileDevice()){
+      window.location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsBody(ev));
+    } else {
+      window.open(gcalURL(ev), '_blank', 'noopener');
+    }
+  }
   (function wireVenueCal(){
     const ceremony = CONFIG.events.find(e => e.en === 'Bou Bhat') || CONFIG.events[CONFIG.events.length - 1];
-    $('#btnCal').addEventListener('click', () => downloadICS(ceremony));
+    $('#btnCal').addEventListener('click', () => addToCalendar(ceremony));
     $('#btnGCal').href = gcalURL(ceremony);
   })();
 
